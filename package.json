@@ -1,0 +1,37 @@
+{
+  "name": "solace-server",
+  "version": "0.1.0",
+  "description": "Mock Solace PubSub+ broker for testing environments — speaks the real SMF wire protocol so unmodified solclientjs clients can connect",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "fast-check": "^3.23.0",
+    "solclientjs": "10.18.3",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}
