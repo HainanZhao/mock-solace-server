@@ -1,7 +1,7 @@
 import { CapturedMessage, ServerEventEmitter } from '../api/events.js';
 import { ResolvedOptions } from '../config.js';
-import { SmfMessage } from '../smf/codec.js';
-import { trMsgFromSmf } from '../smf/messages/trmsg.js';
+import { decodeSmf, SmfMessage } from '../smf/codec.js';
+import { DirectMessage, trMsgFromSmf } from '../smf/messages/trmsg.js';
 import { Connection } from '../transport/connection.js';
 import { AdFlowManager } from './ad-flow-manager.js';
 import { ClientSession, SessionHost } from './client-session.js';
@@ -142,27 +142,37 @@ export class Broker implements SessionHost {
   routeDirectMessage(session: ClientSession, msg: SmfMessage): void {
     const dm = trMsgFromSmf(msg);
     if (!dm) return;
-    const vpn = this.vpns.get(session.vpnName);
+    this.routeMessage(session.vpnName, dm, session.clientName);
+  }
+
+  /** Routes a decoded direct message through a VPN's subscription trie. */
+  routeMessage(vpnName: string, dm: DirectMessage, publisherClientName: string): void {
+    const vpn = this.vpns.get(vpnName);
     if (!vpn) return;
     let delivered = 0;
     const matches = vpn.trie.match(dm.topic);
     for (const subscriber of matches) {
-      const captured: CapturedMessage = {
-        topic: dm.topic,
-        payload: dm.payload,
-        vpnName: session.vpnName,
-        publisherClientName: session.clientName,
-        deliveredTo: 0,
-        timestamp: Date.now(),
-      };
       if (subscriber.deliver(dm)) delivered++;
-      else this.events.emit('messageDiscarded', captured, 'backpressure');
+      else {
+        this.events.emit(
+          'messageDiscarded',
+          {
+            topic: dm.topic,
+            payload: dm.payload,
+            vpnName,
+            publisherClientName,
+            deliveredTo: 0,
+            timestamp: Date.now(),
+          },
+          'backpressure',
+        );
+      }
     }
     const record: CapturedMessage = {
       topic: dm.topic,
       payload: dm.payload,
-      vpnName: session.vpnName,
-      publisherClientName: session.clientName,
+      vpnName,
+      publisherClientName,
       deliveredTo: delivered,
       timestamp: Date.now(),
     };
@@ -173,6 +183,13 @@ export class Broker implements SessionHost {
       }
     }
     this.events.emit('messagePublished', record);
+  }
+
+  /** Injects a broker-originated message (mock service publish/reply). */
+  injectMessage(vpnName: string, frame: Buffer, publisherClientName: string): void {
+    const decoded = trMsgFromSmf(decodeSmf(frame));
+    if (!decoded) return;
+    this.routeMessage(vpnName, decoded, publisherClientName);
   }
 
   capturedMessages(): CapturedMessage[] {

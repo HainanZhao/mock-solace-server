@@ -5,3 +5,10 @@ export type { CapturedMessage, ClientInfo, ServerEvents } from './api/events.js'
 export { TopicTrie, validateSubscription, InvalidSubscriptionError } from './broker/topic-matcher.js';
 export { Queue } from './broker/queue.js';
 export type { QueueProperties, StoredMessage } from './broker/queue.js';
+export { Responder, ScenarioBuilder } from './broker/mock-service.js';
+export type {
+  Payload,
+  ResponderHandler,
+  ResponderOptions,
+  ServiceRequest,
+} from './broker/mock-service.js';

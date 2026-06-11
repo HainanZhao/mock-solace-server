@@ -1,5 +1,13 @@
 import { CapturedMessage, ClientInfo, ServerEventEmitter } from './api/events.js';
 import { Broker } from './broker/broker.js';
+import {
+  MockServices,
+  Payload,
+  Responder,
+  ResponderHandler,
+  ResponderOptions,
+  ScenarioBuilder,
+} from './broker/mock-service.js';
 import { Queue, QueueProperties } from './broker/queue.js';
 import { MockSolaceServerOptions, resolveOptions, ResolvedOptions } from './config.js';
 import { SempServer } from './semp/semp-server.js';
@@ -17,6 +25,7 @@ export interface ServerAddresses {
 export class MockSolaceServer extends ServerEventEmitter {
   readonly options: ResolvedOptions;
   private readonly broker: Broker;
+  private readonly services: MockServices;
   private readonly wsTransport: WsTransport;
   private semp: SempServer | undefined;
   private addresses: ServerAddresses | undefined;
@@ -25,6 +34,7 @@ export class MockSolaceServer extends ServerEventEmitter {
     super();
     this.options = resolveOptions(opts);
     this.broker = new Broker(this.options, this);
+    this.services = new MockServices(this.broker);
     this.wsTransport = new WsTransport((conn) => this.broker.acceptConnection(conn));
   }
 
@@ -83,6 +93,36 @@ export class MockSolaceServer extends ServerEventEmitter {
 
   getQueue(queueName: string, vpnName = 'default'): Queue | undefined {
     return this.broker.getQueue(vpnName, queueName);
+  }
+
+  /** Publishes a broker-originated direct message (mock service publish). */
+  publish(topic: string, payload: Payload, opts: { vpnName?: string } = {}): void {
+    this.services.publish(topic, payload, opts);
+  }
+
+  /**
+   * Registers a broker-side mock service answering request/reply on topics
+   * matching `subscription` (wildcards allowed). The handler may return a
+   * payload (string/Buffer/object) or a static payload may be given directly;
+   * return null/undefined to not reply. Replies carry the requester's
+   * correlationId so `session.sendRequest()` callbacks fire.
+   */
+  respondTo(
+    subscription: string,
+    handler: ResponderHandler | Payload,
+    opts: ResponderOptions = {},
+  ): Responder {
+    return this.services.respondTo(subscription, handler, opts);
+  }
+
+  /** Defines a named, replayable message scenario. */
+  scenario(name: string, build: (s: ScenarioBuilder) => void): void {
+    this.services.defineScenario(name, build);
+  }
+
+  /** Replays a scenario defined with `scenario()`. */
+  play(name: string): Promise<void> {
+    return this.services.play(name);
   }
 
   /**

@@ -61,6 +61,7 @@ There is a runnable end-to-end demo in [`examples/pubsub.mjs`](examples/pubsub.m
 | Solace wildcards: `*`, `abc*` prefix, trailing `>` | ✅ (property-tested) |
 | Multiple message VPNs (auto-created on login by default) | ✅ |
 | Queues + queue topic subscriptions (spooling) | ✅ |
+| Broker-side mock services: request/reply stubs, publish, scenarios | ✅ |
 | SEMP v2: msgVpns, queue CRUD, queue subscriptions, monitor msgs | ✅ minimal |
 | Guaranteed messaging consumer flows (AssuredCtrl) | minimal happy path |
 | Raw TCP SMF (port 55555), compression, TLS, transactions, replay | ❌ out of scope |
@@ -155,6 +156,81 @@ Semantics matching a real broker (happy path):
 
 Note: publish messages with `DIRECT` delivery mode (publisher guaranteed flows
 are not implemented; queue ingress happens via topic subscriptions).
+
+### Mock services: request/reply stubs
+
+Real systems usually have a service on the other side of the broker. Instead
+of running one in your tests, register it **inside** the mock — a virtual
+responder that participates in topic routing and answers
+`session.sendRequest()` calls from the client under test:
+
+```ts
+// Computed replies — handler gets the decoded request:
+const responder = server.respondTo('svc/users/*', (req) => {
+  const id = req.topic.split('/').pop();
+  return { id, name: `user-${id}` };          // string | Buffer | object (JSON)
+});
+
+// Static replies:
+server.respondTo('svc/ping', 'pong');
+
+// Async handlers work too:
+server.respondTo('svc/orders/create', async (req) => {
+  await somethingAsync();
+  return { ok: true, received: req.payload.toString() };
+});
+
+// Return null/undefined to NOT reply — the client's request times out,
+// which is exactly how a missing service fails in production:
+server.respondTo('svc/down', () => null);
+```
+
+The client under test needs no changes — plain SDK request/reply:
+
+```ts
+const msg = solace.SolclientFactory.createMessage();
+msg.setDestination(solace.SolclientFactory.createTopicDestination('svc/users/42'));
+msg.setBinaryAttachment('hi');
+session.sendRequest(msg, 5000, (s, reply) => {
+  console.log(reply.getBinaryAttachment());   // {"id":"42","name":"user-42"}
+});
+```
+
+Responders also receive plain published messages matching their subscription
+(no reply is sent when there is no reply-to), capture everything for
+assertions, and can be detached:
+
+```ts
+responder.requests;                  // every request seen: topic, payload, correlationId
+responder.requests[0].payload.toString();
+responder.remove();                  // service "goes down" mid-test
+```
+
+### Mock services: broker-originated publishing and replayable scenarios
+
+Publish straight from the server — no publisher session needed:
+
+```ts
+server.publish('market/prices/EURUSD', { bid: 1.0842, ask: 1.0844 });
+```
+
+For multi-message flows, register a named scenario once and replay it
+whenever a test needs that traffic:
+
+```ts
+server.scenario('order-lifecycle', (s) =>
+  s.publish('orders/created', { id: 1 })
+   .wait(50)                                  // ms between messages
+   .publish('orders/paid',    { id: 1 })
+   .publish('orders/shipped', { id: 1 }),
+);
+
+// In a test — replay as many times as you like:
+await server.play('order-lifecycle');
+```
+
+`play()` resolves after the last step, so you can await it and then assert on
+what your client received.
 
 ### Using it in vitest / jest
 

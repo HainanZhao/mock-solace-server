@@ -215,3 +215,33 @@ correlation tag (debug.js:12430–12450); without it the message is dispatched b
 - message.acknowledge() → CLIENTACK with FLOWID + APPLICATION_ACK range(s); transport
   acks (LASTMSGIDACKED/WINDOW) also arrive and must not delete messages.
 - consumer.disconnect() → UNBIND (FLOWID); reply msgType UNBIND + corrtag + 200.
+
+## 11. Binary metadata / request-reply — debug.js:16460–16545 (build), 16105–16190 (parse), 14757–14804, 15248–15270
+
+TrMsg payloads with structure carry a MESSAGE_CONTENT_SUMMARY param listing elements
+(byte = type<<4 | lenMode; lenModes 2=u8, 3=u16, 4=u24, 5=u32). Element order on send:
+BINARY_ATTACHMENT (2) then BINARY_METADATA (4). A payload without a summary is a single
+binary attachment.
+
+**BinaryMetaBlock** (type-4 element): u8 chunk count (always 1), u8 type (0 = SDT
+metadata), u24 BE payload length, then an SDT-encoded payload.
+
+**SDT field encoding** (debug.js:9568–9586, 10008–10018): byte0 = (type << 2) |
+(lengthBytes−1); length (u8/u16/u32 BE) INCLUSIVE of header byte + length bytes; value.
+Types: 6 BYTEARRAY, 7 STRING (null-terminated), 8 DESTINATION (u8 dest type 0=topic +
+null-terminated name), 10 MAP (alternating string-key field, value field), 11 STREAM
+(concatenated fields).
+
+**Metadata payload** = one STREAM field containing:
+1. BYTEARRAY preamble (2 bytes): byte0 = message type (0x80 binary, 7 text, 10 map,
+   11 stream; 0x40 = compressed), byte1 bit 0x80 = **isReplyMessage**.
+2. MAP with optional keys `p` (user property map) and `h` (header map). Header map keys:
+   `ci` correlationId (STRING), `rt` replyTo (DESTINATION), `mi`/`mt`/`si`/`ce`/`ct`
+   strings, `sn`/`ts`/`ex` INT64.
+
+**Request/reply** (debug.js:14757–14804, 15248–15270): sendRequest sets correlationId
+`#REQ<n>` and replyTo = session P2P inbox topic. A reply is recognized iff the incoming
+message has the isReply preamble bit AND its `ci` matches an outstanding request; replies
+to unknown `#REQ*` ids are silently dropped. sendReply sets isReply + echoed `ci` +
+destination = request's replyTo. TTL/eliding/CoS live in the SMF header, not metadata —
+omitting them in broker-built replies is fine.
