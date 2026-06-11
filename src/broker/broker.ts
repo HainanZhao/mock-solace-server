@@ -4,6 +4,7 @@ import { SmfMessage } from '../smf/codec.js';
 import { trMsgFromSmf } from '../smf/messages/trmsg.js';
 import { Connection } from '../transport/connection.js';
 import { ClientSession, SessionHost } from './client-session.js';
+import { Queue, QueueProperties } from './queue.js';
 import { MessageVpn } from './vpn.js';
 
 export class Broker implements SessionHost {
@@ -93,6 +94,44 @@ export class Broker implements SessionHost {
     this.events.emit('subscriptionRemoved', session.info(), subscription);
   }
 
+  createQueue(vpnName: string, queueName: string, props: Partial<QueueProperties> = {}): Queue {
+    const vpn = this.getOrCreateVpn(vpnName);
+    const existing = vpn.queues.get(queueName);
+    if (existing) throw new Error(`queue '${queueName}' already exists`);
+    const queue = new Queue(queueName, vpnName, props);
+    vpn.queues.set(queueName, queue);
+    return queue;
+  }
+
+  deleteQueue(vpnName: string, queueName: string): boolean {
+    const vpn = this.vpns.get(vpnName);
+    const queue = vpn?.queues.get(queueName);
+    if (!vpn || !queue) return false;
+    vpn.trie.removeAll(queue);
+    vpn.queues.delete(queueName);
+    return true;
+  }
+
+  addQueueSubscription(vpnName: string, queueName: string, subscription: string): void {
+    const vpn = this.vpns.get(vpnName);
+    const queue = vpn?.queues.get(queueName);
+    if (!vpn || !queue) throw new Error(`queue '${queueName}' not found`);
+    vpn.trie.add(subscription, queue);
+    queue.topicSubscriptions.add(subscription);
+  }
+
+  removeQueueSubscription(vpnName: string, queueName: string, subscription: string): boolean {
+    const vpn = this.vpns.get(vpnName);
+    const queue = vpn?.queues.get(queueName);
+    if (!vpn || !queue) return false;
+    queue.topicSubscriptions.delete(subscription);
+    return vpn.trie.remove(subscription, queue);
+  }
+
+  getQueue(vpnName: string, queueName: string): Queue | undefined {
+    return this.vpns.get(vpnName)?.queues.get(queueName);
+  }
+
   routeDirectMessage(session: ClientSession, msg: SmfMessage): void {
     const dm = trMsgFromSmf(msg);
     if (!dm) return;
@@ -109,7 +148,7 @@ export class Broker implements SessionHost {
         deliveredTo: 0,
         timestamp: Date.now(),
       };
-      if (subscriber.deliver(dm.raw, dm.topic)) delivered++;
+      if (subscriber.deliver(dm)) delivered++;
       else this.events.emit('messageDiscarded', captured, 'backpressure');
     }
     const record: CapturedMessage = {

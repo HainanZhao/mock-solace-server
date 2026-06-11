@@ -1,5 +1,6 @@
 import { CapturedMessage, ClientInfo, ServerEventEmitter } from './api/events.js';
 import { Broker } from './broker/broker.js';
+import { Queue, QueueProperties } from './broker/queue.js';
 import { MockSolaceServerOptions, resolveOptions, ResolvedOptions } from './config.js';
 import { SempServer } from './semp/semp-server.js';
 import { WsTransport } from './transport/ws-transport.js';
@@ -63,6 +64,25 @@ export class MockSolaceServer extends ServerEventEmitter {
 
   clearCapturedMessages(): void {
     this.broker.clearCapturedMessages();
+  }
+
+  /** Creates a queue, optionally subscribed to topics. */
+  createQueue(
+    queueName: string,
+    opts: Partial<QueueProperties> & { vpnName?: string; topics?: string[] } = {},
+  ): Queue {
+    const { vpnName = 'default', topics = [], ...props } = opts;
+    const queue = this.broker.createQueue(vpnName, queueName, props);
+    for (const topic of topics) this.broker.addQueueSubscription(vpnName, queueName, topic);
+    return queue;
+  }
+
+  deleteQueue(queueName: string, vpnName = 'default'): boolean {
+    return this.broker.deleteQueue(vpnName, queueName);
+  }
+
+  getQueue(queueName: string, vpnName = 'default'): Queue | undefined {
+    return this.broker.getQueue(vpnName, queueName);
   }
 
   /**

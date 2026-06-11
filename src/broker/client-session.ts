@@ -17,6 +17,7 @@ import {
 } from '../smf/messages/client-ctrl.js';
 import { encodeKeepAlive } from '../smf/messages/keepalive.js';
 import { decodeSmp, encodeSmpResponse, responseRequired } from '../smf/messages/smp.js';
+import { DirectMessage } from '../smf/messages/trmsg.js';
 import { Connection } from '../transport/connection.js';
 import { SmfFramer } from '../transport/framer.js';
 import { InvalidSubscriptionError } from './topic-matcher.js';
@@ -33,6 +34,8 @@ export interface SessionHost {
   vpnExists(name: string): boolean;
   addSubscription(session: ClientSession, subscription: string): void;
   removeSubscription(session: ClientSession, subscription: string): void;
+  addQueueSubscription(vpnName: string, queueName: string, subscription: string): void;
+  removeQueueSubscription(vpnName: string, queueName: string, subscription: string): boolean;
   routeDirectMessage(session: ClientSession, msg: SmfMessage): void;
   onSessionUp(session: ClientSession): void;
   onSessionClosed(session: ClientSession): void;
@@ -205,9 +208,15 @@ export class ClientSession implements Subscriber {
         case SmpMsgType.REMSUBSCRIPTION:
           this.host.removeSubscription(this, smp.subscription);
           break;
+        case SmpMsgType.ADDQUEUESUBSCRIPTION:
+          this.host.addQueueSubscription(this.vpnName, smp.queueName!, smp.subscription);
+          break;
+        case SmpMsgType.REMQUEUESUBSCRIPTION:
+          this.host.removeQueueSubscription(this.vpnName, smp.queueName!, smp.subscription);
+          break;
         default:
           code = 400;
-          text = 'Queue subscriptions not supported';
+          text = 'Unsupported subscription operation';
           break;
       }
     } catch (err) {
@@ -224,11 +233,11 @@ export class ClientSession implements Subscriber {
     }
   }
 
-  /** Subscriber implementation: forward a routed frame, with backpressure cap. */
-  deliver(frame: Buffer): boolean {
+  /** Subscriber implementation: forward the routed frame, with backpressure cap. */
+  deliver(message: DirectMessage): boolean {
     if (this.state !== 'up') return false;
     if (this.conn.bufferedAmount() > this.host.options.maxBufferedBytes) return false;
-    this.conn.send(frame);
+    this.conn.send(message.raw);
     return true;
   }
 
