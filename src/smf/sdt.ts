@@ -7,6 +7,8 @@
  * (u8/u16/u32, INCLUSIVE of header byte and length bytes), then the value.
  */
 
+import { alloc, concat, fromUtf8, readU16BE, readU32BE, toUtf8, writeU32BE } from '../util/bytes.js';
+
 export const SdtType = {
   NULL: 0,
   BOOLEAN: 1,
@@ -24,28 +26,28 @@ export const SdtType = {
 
 export interface SdtField {
   type: number;
-  value: Buffer;
+  value: Uint8Array;
 }
 
-export function encodeSdtField(type: number, value: Buffer): Buffer {
+export function encodeSdtField(type: number, value: Uint8Array): Uint8Array {
   // Always use the 4-byte length form for simplicity (mode 3).
   const total = 1 + 4 + value.length;
-  const out = Buffer.alloc(total);
-  out.writeUInt8(((type & 0x3f) << 2) | 3, 0);
-  out.writeUInt32BE(total, 1);
-  value.copy(out, 5);
+  const out = alloc(total);
+  out[0] = ((type & 0x3f) << 2) | 3;
+  writeU32BE(out, total, 1);
+  out.set(value, 5);
   return out;
 }
 
 /** Decodes one field at `offset`; returns the field and the next offset. */
-export function decodeSdtField(buf: Buffer, offset: number): { field: SdtField; next: number } {
-  const byte0 = buf.readUInt8(offset);
+export function decodeSdtField(buf: Uint8Array, offset: number): { field: SdtField; next: number } {
+  const byte0 = buf[offset]!;
   const type = (byte0 & 0xfc) >> 2;
   const lenBytes = (byte0 & 0x03) + 1;
   let total: number;
-  if (lenBytes === 1) total = buf.readUInt8(offset + 1);
-  else if (lenBytes === 2) total = buf.readUInt16BE(offset + 1);
-  else if (lenBytes === 4) total = buf.readUInt32BE(offset + 1);
+  if (lenBytes === 1) total = buf[offset + 1]!;
+  else if (lenBytes === 2) total = readU16BE(buf, offset + 1);
+  else if (lenBytes === 4) total = readU32BE(buf, offset + 1);
   else throw new Error('unsupported SDT length mode');
   const valueStart = offset + 1 + lenBytes;
   const next = offset + total;
@@ -54,7 +56,7 @@ export function decodeSdtField(buf: Buffer, offset: number): { field: SdtField; 
 }
 
 /** Decodes consecutive fields covering `buf` entirely (a STREAM body). */
-export function decodeSdtStream(buf: Buffer): SdtField[] {
+export function decodeSdtStream(buf: Uint8Array): SdtField[] {
   const fields: SdtField[] = [];
   let pos = 0;
   while (pos < buf.length) {
@@ -66,7 +68,7 @@ export function decodeSdtStream(buf: Buffer): SdtField[] {
 }
 
 /** Decodes a MAP body: alternating string-key fields and value fields. */
-export function decodeSdtMap(buf: Buffer): Map<string, SdtField> {
+export function decodeSdtMap(buf: Uint8Array): Map<string, SdtField> {
   const out = new Map<string, SdtField>();
   let pos = 0;
   while (pos < buf.length) {
@@ -74,29 +76,29 @@ export function decodeSdtMap(buf: Buffer): Map<string, SdtField> {
     pos = key.next;
     const value = decodeSdtField(buf, pos);
     pos = value.next;
-    let name = key.field.value.toString('utf8');
+    let name = toUtf8(key.field.value);
     if (name.endsWith('\0')) name = name.slice(0, -1);
     out.set(name, value.field);
   }
   return out;
 }
 
-export function sdtString(s: string): Buffer {
-  return encodeSdtField(SdtType.STRING, Buffer.from(`${s}\0`, 'utf8'));
+export function sdtString(s: string): Uint8Array {
+  return encodeSdtField(SdtType.STRING, fromUtf8(`${s}\0`));
 }
 
 /** Destination value: 1 byte type (0 = topic) + null-terminated name. */
-export function sdtTopicDestination(name: string): Buffer {
+export function sdtTopicDestination(name: string): Uint8Array {
   return encodeSdtField(
     SdtType.DESTINATION,
-    Buffer.concat([Buffer.from([0]), Buffer.from(`${name}\0`, 'utf8')]),
+    concat([Uint8Array.of(0), fromUtf8(`${name}\0`)]),
   );
 }
 
-export function encodeSdtMapBody(entries: [string, Buffer][]): Buffer {
-  const parts: Buffer[] = [];
+export function encodeSdtMapBody(entries: [string, Uint8Array][]): Uint8Array {
+  const parts: Uint8Array[] = [];
   for (const [key, encodedValue] of entries) {
     parts.push(sdtString(key), encodedValue);
   }
-  return Buffer.concat(parts);
+  return concat(parts);
 }

@@ -1,4 +1,4 @@
-import { EventEmitter } from 'node:events';
+import { TypedEventEmitter } from '../util/emitter.js';
 
 export interface ClientInfo {
   clientName: string;
@@ -10,7 +10,7 @@ export interface ClientInfo {
 
 export interface CapturedMessage {
   topic: string;
-  payload: Buffer;
+  payload: Uint8Array;
   vpnName: string;
   publisherClientName: string;
   deliveredTo: number;
@@ -26,4 +26,4 @@ export interface ServerEvents {
   messageDiscarded: [message: CapturedMessage, reason: string];
 }
 
-export class ServerEventEmitter extends EventEmitter<ServerEvents> {}
+export class ServerEventEmitter extends TypedEventEmitter<ServerEvents> {}

@@ -13,6 +13,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
+    },
+    "./browser/auto": {
+      "types": "./dist/auto.d.ts",
+      "import": "./dist/auto.js"
     }
   },
   "files": [
@@ -20,7 +28,8 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "test": "vitest run",
+    "check:browser": "esbuild src/browser.ts --bundle --platform=browser --format=esm --outfile=/dev/null --log-level=warning",
+    "test": "vitest run && npm run check:browser",
     "test:watch": "vitest"
   },
   "dependencies": {
@@ -29,6 +38,7 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/ws": "^8.5.13",
+    "esbuild": "^0.28.0",
     "fast-check": "^3.23.0",
     "solclientjs": "10.18.3",
     "typescript": "^5.7.0",

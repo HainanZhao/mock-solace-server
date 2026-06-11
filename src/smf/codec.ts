@@ -6,13 +6,13 @@ export interface SmfMessage {
   header: SmfHeader;
   params: SmfParams;
   /** Message body following the header (sub-protocol body or message payload). */
-  payload: Buffer;
+  payload: Uint8Array;
   /** The complete original frame, for zero-copy forwarding. */
-  raw: Buffer;
+  raw: Uint8Array;
 }
 
 /** Decodes a complete SMF frame (as produced by the framer). */
-export function decodeSmf(buf: Buffer): SmfMessage {
+export function decodeSmf(buf: Uint8Array): SmfMessage {
   const header = decodeSmfHeader(buf, 0);
   const params = decodeSmfParams(buf, 12, header.headerLen);
   return {

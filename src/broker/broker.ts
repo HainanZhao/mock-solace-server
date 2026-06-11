@@ -186,7 +186,7 @@ export class Broker implements SessionHost {
   }
 
   /** Injects a broker-originated message (mock service publish/reply). */
-  injectMessage(vpnName: string, frame: Buffer, publisherClientName: string): void {
+  injectMessage(vpnName: string, frame: Uint8Array, publisherClientName: string): void {
     const decoded = trMsgFromSmf(decodeSmf(frame));
     if (!decoded) return;
     this.routeMessage(vpnName, decoded, publisherClientName);

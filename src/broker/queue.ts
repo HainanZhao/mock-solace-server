@@ -6,8 +6,8 @@ export interface StoredMessage {
   msgId: number;
   topic: string;
   /** The original publisher frame. */
-  raw: Buffer;
-  payload: Buffer;
+  raw: Uint8Array;
+  payload: Uint8Array;
   spooledAt: number;
   redelivered: boolean;
 }
@@ -62,7 +62,7 @@ export class Queue implements Subscriber {
     return true;
   }
 
-  spool(topic: string, raw: Buffer, payload: Buffer): StoredMessage {
+  spool(topic: string, raw: Uint8Array, payload: Uint8Array): StoredMessage {
     const stored: StoredMessage = {
       msgId: nextMsgId++,
       topic,

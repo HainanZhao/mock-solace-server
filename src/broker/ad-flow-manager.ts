@@ -11,6 +11,7 @@ import {
   getAdU32,
   getAdU8,
 } from '../smf/messages/assured-ctrl.js';
+import { alloc, concat, writeU32BE, writeU64BE } from '../util/bytes.js';
 import { ClientSession } from './client-session.js';
 import { Queue, StoredMessage } from './queue.js';
 
@@ -146,26 +147,26 @@ export class AdFlowManager {
    * set, original params preserved, AD params (msg id chain, flow id,
    * persistent delivery mode, redelivered flag) appended.
    */
-  private buildGuaranteedFrame(flow: ConsumerFlow, stored: StoredMessage): Buffer {
+  private buildGuaranteedFrame(flow: ConsumerFlow, stored: StoredMessage): Uint8Array {
     const original = decodeSmf(stored.raw);
-    const msgId = Buffer.alloc(8);
-    msgId.writeBigUInt64BE(BigInt(stored.msgId), 0);
-    const prevMsgId = Buffer.alloc(8);
-    prevMsgId.writeBigUInt64BE(BigInt(flow.lastDelivered), 0);
-    const flowId = Buffer.alloc(4);
-    flowId.writeUInt32BE(flow.flowId, 0);
-    const adParams: Buffer[] = [
+    const msgId = alloc(8);
+    writeU64BE(msgId, BigInt(stored.msgId), 0);
+    const prevMsgId = alloc(8);
+    writeU64BE(prevMsgId, BigInt(flow.lastDelivered), 0);
+    const flowId = alloc(4);
+    writeU32BE(flowId, flow.flowId, 0);
+    const adParams: Uint8Array[] = [
       encodeSmfParam(2, SmfParam.ASSURED_MESSAGE_ID, msgId),
       encodeSmfParam(2, SmfParam.ASSURED_PREVMESSAGE_ID, prevMsgId),
       encodeSmfParam(0, SmfParam.ASSURED_FLOWID, flowId),
-      encodeSmfParam(0, SmfParam.DELIVERY_MODE, Buffer.from([WireDeliveryMode.PERSISTENT])),
+      encodeSmfParam(0, SmfParam.DELIVERY_MODE, Uint8Array.of(WireDeliveryMode.PERSISTENT)),
     ];
     if (stored.redelivered) {
-      adParams.push(encodeSmfParam(0, SmfParam.ASSURED_REDELIVERED_FLAG, Buffer.alloc(0)));
+      adParams.push(encodeSmfParam(0, SmfParam.ASSURED_REDELIVERED_FLAG, alloc(0)));
     }
     return encodeSmfFrame(
       { protocol: SmfProtocol.TRMSG, ttl: original.header.ttl, adf: true },
-      Buffer.concat([original.params.raw, ...adParams]),
+      concat([original.params.raw, ...adParams]),
       original.payload,
     );
   }

@@ -16,12 +16,13 @@ import {
   parseLoginRequest,
 } from '../../src/smf/messages/client-ctrl.js';
 import { encodeDirectMessage, trMsgFromSmf } from '../../src/smf/messages/trmsg.js';
+import { readU32BE, toUtf8 } from '../../src/util/bytes.js';
 
 describe('SMF header', () => {
   it('keepalive frame matches the exact bytes solclientjs sends', () => {
     // Verified against solclientjs-debug.js:18409-18415 (UH=2, TTL=2, proto 11).
     expect(encodeKeepAlive()).toEqual(
-      Buffer.from('038b0002000000 0c0000000c'.replace(/ /g, ''), 'hex'),
+      Uint8Array.from(Buffer.from('038b0002000000 0c0000000c'.replace(/ /g, ''), 'hex')),
     );
   });
 
@@ -38,7 +39,7 @@ describe('SMF header', () => {
     expect(msg.header.priority).toBe(5);
     expect(msg.header.headerLen).toBe(12);
     expect(msg.header.msgLen).toBe(15);
-    expect(msg.payload.toString()).toBe('xyz');
+    expect(toUtf8(msg.payload)).toBe('xyz');
   });
 
   it('rejects invalid version', () => {
@@ -59,7 +60,7 @@ describe('SMF params', () => {
     expect(msg.params.correlationTag).toBe(0xabcdef);
     expect(msg.params.responseCode).toBe(200);
     expect(msg.params.responseString).toBe('OK');
-    expect(msg.params.topicName?.toString()).toBe('foo/bar');
+    expect(toUtf8(msg.params.topicName!)).toBe('foo/bar');
   });
 
   it('uses extended length form for values over 253 bytes', () => {
@@ -69,9 +70,9 @@ describe('SMF params', () => {
       encodeTopicNameParam(topic),
     );
     // byte 12 is the param type byte; byte 13 must be 0 (extended form marker)
-    expect(frame.readUInt8(13)).toBe(0);
-    expect(frame.readUInt32BE(14)).toBe(306);
-    expect(decodeSmf(frame).params.topicName?.toString()).toBe(topic);
+    expect(frame[13]).toBe(0);
+    expect(readU32BE(frame, 14)).toBe(306);
+    expect(toUtf8(decodeSmf(frame).params.topicName!)).toBe(topic);
   });
 
   it('decodes base64 username/password params', () => {
@@ -159,12 +160,12 @@ describe('ClientCtrl', () => {
     expect(msg.params.responseCode).toBe(200);
     const cc = decodeClientCtrl(msg.payload);
     expect(cc.msgType).toBe(0);
-    expect(cc.params.get(0x05)?.toString()).toBe('client-1\0');
-    expect(cc.params.get(0x08)?.toString()).toBe('#P2P/v:mock/abc/client-1\0');
+    expect(toUtf8(cc.params.get(0x05)!)).toBe('client-1\0');
+    expect(toUtf8(cc.params.get(0x08)!)).toBe('#P2P/v:mock/abc/client-1\0');
     const caps = cc.params.get(0x09)!;
-    expect(caps.readUInt8(0)).toBe(27); // boolean cap bit count
-    expect(caps.readUInt8(1)).toBe(0x00); // bits 0-7 all off (no GM)
-    expect(caps.readUInt8(2) & 0x02).toBe(0x02); // bit 14 (NO_LOCAL) set
+    expect(caps[0]).toBe(27); // boolean cap bit count
+    expect(caps[1]).toBe(0x00); // bits 0-7 all off (no GM)
+    expect(caps[2]! & 0x02).toBe(0x02); // bit 14 (NO_LOCAL) set
   });
 
   it('parses a login request the way the SDK encodes it', () => {
@@ -196,8 +197,8 @@ describe('TrMsg', () => {
     const frame = encodeDirectMessage('animals/cat', Buffer.from('meow'));
     const dm = trMsgFromSmf(decodeSmf(frame))!;
     expect(dm.topic).toBe('animals/cat');
-    expect(dm.payload.toString()).toBe('meow');
-    expect(dm.raw).toEqual(frame);
+    expect(toUtf8(dm.payload)).toBe('meow');
+    expect(Uint8Array.from(dm.raw)).toEqual(Uint8Array.from(frame));
   });
 });
 

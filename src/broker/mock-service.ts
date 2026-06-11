@@ -4,24 +4,25 @@
  * session is involved — responders live inside the broker and participate in
  * topic routing as ordinary subscribers.
  */
-import { randomUUID } from 'node:crypto';
+const randomUUID = (): string => globalThis.crypto.randomUUID();
 import { buildOutboundMessage, extractMessageMeta } from '../smf/messages/binary-meta.js';
 import { decodeSmf } from '../smf/codec.js';
 import { DirectMessage } from '../smf/messages/trmsg.js';
+import { fromUtf8 } from '../util/bytes.js';
 import { Broker } from './broker.js';
 import { Subscriber } from './vpn.js';
 
-export type Payload = string | Buffer | object;
+export type Payload = string | Uint8Array | object;
 
-export function toPayloadBuffer(payload: Payload): Buffer {
-  if (Buffer.isBuffer(payload)) return payload;
-  if (typeof payload === 'string') return Buffer.from(payload, 'utf8');
-  return Buffer.from(JSON.stringify(payload), 'utf8');
+export function toPayloadBytes(payload: Payload): Uint8Array {
+  if (payload instanceof Uint8Array) return payload;
+  if (typeof payload === 'string') return fromUtf8(payload);
+  return fromUtf8(JSON.stringify(payload));
 }
 
 export interface ServiceRequest {
   topic: string;
-  payload: Buffer;
+  payload: Uint8Array;
   /** Set when the publisher used session.sendRequest(). */
   correlationId?: string;
   replyToTopic?: string;
@@ -66,7 +67,7 @@ export class Responder implements Subscriber {
       (reply) => {
         if (reply === null || reply === undefined) return;
         if (!request.replyToTopic) return; // fire-and-forget publish, no reply path
-        const frame = buildOutboundMessage(request.replyToTopic, toPayloadBuffer(reply), {
+        const frame = buildOutboundMessage(request.replyToTopic, toPayloadBytes(reply), {
           isReply: true,
           correlationId: request.correlationId,
         });
@@ -87,7 +88,7 @@ export class Responder implements Subscriber {
 }
 
 export type ScenarioStep =
-  | { kind: 'publish'; topic: string; payload: Buffer; vpnName?: string }
+  | { kind: 'publish'; topic: string; payload: Uint8Array; vpnName?: string }
   | { kind: 'wait'; ms: number };
 
 /** Fluent builder passed to `server.scenario(name, build)`. */
@@ -98,7 +99,7 @@ export class ScenarioBuilder {
     this.steps.push({
       kind: 'publish',
       topic,
-      payload: toPayloadBuffer(payload),
+      payload: toPayloadBytes(payload),
       vpnName: opts.vpnName,
     });
     return this;
@@ -118,7 +119,7 @@ export class MockServices {
   publish(topic: string, payload: Payload, opts: { vpnName?: string } = {}): void {
     const vpnName = opts.vpnName ?? 'default';
     this.broker.getOrCreateVpn(vpnName);
-    const frame = buildOutboundMessage(topic, toPayloadBuffer(payload));
+    const frame = buildOutboundMessage(topic, toPayloadBytes(payload));
     this.broker.injectMessage(vpnName, frame, 'mock-service');
   }
 

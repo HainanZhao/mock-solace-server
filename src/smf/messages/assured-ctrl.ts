@@ -1,6 +1,15 @@
 import { AdMsgType, AdParam, SmfProtocol } from '../constants.js';
 import { encodeSmfFrame, SmfDecodeError } from '../header.js';
 import { encodeCorrelationTagParam, encodeResponseParam } from '../params.js';
+import {
+  alloc,
+  concat,
+  readU32BE,
+  readU64BE,
+  toUtf8,
+  writeU32BE,
+  writeU64BE,
+} from '../../util/bytes.js';
 
 const ADP_VERSION = 3;
 
@@ -14,35 +23,35 @@ export interface AckRange {
 export interface AdProtocolMessage {
   msgType: number;
   /** Raw param values keyed by type id (last occurrence wins). */
-  params: Map<number, Buffer>;
+  params: Map<number, Uint8Array>;
   /** APPLICATION_ACK is a repeated param: one range per occurrence. */
   applicationAcks: AckRange[];
 }
 
-export function decodeAdProtocol(payload: Buffer): AdProtocolMessage {
+export function decodeAdProtocol(payload: Uint8Array): AdProtocolMessage {
   if (payload.length < 6) throw new SmfDecodeError('AdProtocol body too short');
-  const version = payload.readUInt8(0) & 0x3f;
+  const version = payload[0]! & 0x3f;
   if (version !== ADP_VERSION) {
     throw new SmfDecodeError(`unsupported AdProtocol version ${version}`);
   }
-  const msgType = payload.readUInt8(1);
-  const msgLength = payload.readUInt32BE(2);
+  const msgType = payload[1]!;
+  const msgLength = readU32BE(payload, 2);
   if (msgLength < 6 || msgLength > payload.length) {
     throw new SmfDecodeError('invalid AdProtocol length');
   }
-  const params = new Map<number, Buffer>();
+  const params = new Map<number, Uint8Array>();
   const applicationAcks: AckRange[] = [];
   let pos = 6;
   while (pos < msgLength) {
-    const b = payload.readUInt8(pos);
+    const b = payload[pos]!;
     pos++;
     const type = b & 0x3f;
     if (type === 0) continue; // padding
-    let paramLen = payload.readUInt8(pos);
+    let paramLen = payload[pos]!;
     pos++;
     let valueLen: number;
     if (paramLen === 0) {
-      paramLen = payload.readUInt32BE(pos);
+      paramLen = readU32BE(payload, pos);
       pos += 4;
       valueLen = paramLen - 5;
     } else {
@@ -54,9 +63,9 @@ export function decodeAdProtocol(payload: Buffer): AdProtocolMessage {
     const value = payload.subarray(pos, pos + valueLen);
     if (type === AdParam.APPLICATION_ACK && valueLen >= 16) {
       applicationAcks.push({
-        min: Number(value.readBigUInt64BE(0)),
-        max: Number(value.readBigUInt64BE(8)),
-        outcome: valueLen >= 17 ? value.readUInt8(16) : 0,
+        min: Number(readU64BE(value, 0)),
+        max: Number(readU64BE(value, 8)),
+        outcome: valueLen >= 17 ? value[16]! : 0,
       });
     } else {
       params.set(type, value);
@@ -66,40 +75,40 @@ export function decodeAdProtocol(payload: Buffer): AdProtocolMessage {
   return { msgType, params, applicationAcks };
 }
 
-function encodeAdParam(type: number, value: Buffer): Buffer {
+function encodeAdParam(type: number, value: Uint8Array): Uint8Array {
   if (value.length <= 253) {
-    return Buffer.concat([Buffer.from([type & 0x3f, value.length + 2]), value]);
+    return concat([Uint8Array.of(type & 0x3f, value.length + 2), value]);
   }
-  const head = Buffer.alloc(6);
-  head.writeUInt8(type & 0x3f, 0);
-  head.writeUInt8(0, 1);
-  head.writeUInt32BE(value.length + 5, 2);
-  return Buffer.concat([head, value]);
+  const head = alloc(6);
+  head[0] = type & 0x3f;
+  head[1] = 0;
+  writeU32BE(head, value.length + 5, 2);
+  return concat([head, value]);
 }
 
-function u8(n: number): Buffer {
-  return Buffer.from([n & 0xff]);
+function u8(n: number): Uint8Array {
+  return Uint8Array.of(n & 0xff);
 }
 
-function u32(n: number): Buffer {
-  const b = Buffer.alloc(4);
-  b.writeUInt32BE(n >>> 0, 0);
+function u32(n: number): Uint8Array {
+  const b = alloc(4);
+  writeU32BE(b, n >>> 0, 0);
   return b;
 }
 
-function u64(n: number): Buffer {
-  const b = Buffer.alloc(8);
-  b.writeBigUInt64BE(BigInt(n), 0);
+function u64(n: number): Uint8Array {
+  const b = alloc(8);
+  writeU64BE(b, BigInt(n), 0);
   return b;
 }
 
-function encodeAdBody(msgType: number, params: Buffer[]): Buffer {
-  const paramData = Buffer.concat(params);
-  const head = Buffer.alloc(6);
-  head.writeUInt8(ADP_VERSION, 0);
-  head.writeUInt8(msgType, 1);
-  head.writeUInt32BE(6 + paramData.length, 2);
-  return Buffer.concat([head, paramData]);
+function encodeAdBody(msgType: number, params: Uint8Array[]): Uint8Array {
+  const paramData = concat(params);
+  const head = alloc(6);
+  head[0] = ADP_VERSION;
+  head[1] = msgType;
+  writeU32BE(head, 6 + paramData.length, 2);
+  return concat([head, paramData]);
 }
 
 export interface BindResponseOptions {
@@ -116,13 +125,13 @@ export interface BindResponseOptions {
  * correlation tag and requires msgType BIND + response code 200 with a FLOWID
  * param to take the consumer flow UP.
  */
-export function encodeBindResponse(opts: BindResponseOptions): Buffer {
-  const smfParams: Buffer[] = [];
+export function encodeBindResponse(opts: BindResponseOptions): Uint8Array {
+  const smfParams: Uint8Array[] = [];
   if (opts.correlationTag !== undefined) {
     smfParams.push(encodeCorrelationTagParam(opts.correlationTag));
   }
   smfParams.push(encodeResponseParam(opts.responseCode, opts.responseText));
-  const adParams: Buffer[] =
+  const adParams: Uint8Array[] =
     opts.responseCode === 200
       ? [
           encodeAdParam(AdParam.FLOWID, u32(opts.flowId)),
@@ -136,7 +145,7 @@ export function encodeBindResponse(opts: BindResponseOptions): Buffer {
       : [];
   return encodeSmfFrame(
     { protocol: SmfProtocol.ADCTRL, ttl: 1 },
-    Buffer.concat(smfParams),
+    concat(smfParams),
     encodeAdBody(AdMsgType.BIND, adParams),
   );
 }
@@ -148,14 +157,14 @@ export function encodeAdSimpleResponse(
   code: number,
   text: string,
   flowId?: number,
-): Buffer {
-  const smfParams: Buffer[] = [];
+): Uint8Array {
+  const smfParams: Uint8Array[] = [];
   if (correlationTag !== undefined) smfParams.push(encodeCorrelationTagParam(correlationTag));
   smfParams.push(encodeResponseParam(code, text));
-  const adParams: Buffer[] = flowId !== undefined ? [encodeAdParam(AdParam.FLOWID, u32(flowId))] : [];
+  const adParams: Uint8Array[] = flowId !== undefined ? [encodeAdParam(AdParam.FLOWID, u32(flowId))] : [];
   return encodeSmfFrame(
     { protocol: SmfProtocol.ADCTRL, ttl: 1 },
-    Buffer.concat(smfParams),
+    concat(smfParams),
     encodeAdBody(msgType, adParams),
   );
 }
@@ -163,21 +172,21 @@ export function encodeAdSimpleResponse(
 export function getAdString(msg: AdProtocolMessage, type: number): string | undefined {
   const v = msg.params.get(type);
   if (v === undefined) return undefined;
-  const s = v.toString('utf8');
+  const s = toUtf8(v);
   return s.endsWith('\0') ? s.slice(0, -1) : s;
 }
 
 export function getAdU32(msg: AdProtocolMessage, type: number): number | undefined {
   const v = msg.params.get(type);
-  return v !== undefined && v.length >= 4 ? v.readUInt32BE(0) : undefined;
+  return v !== undefined && v.length >= 4 ? readU32BE(v, 0) : undefined;
 }
 
 export function getAdU8(msg: AdProtocolMessage, type: number): number | undefined {
   const v = msg.params.get(type);
-  return v !== undefined && v.length >= 1 ? v.readUInt8(0) : undefined;
+  return v !== undefined && v.length >= 1 ? v[0] : undefined;
 }
 
 export function getAdU64(msg: AdProtocolMessage, type: number): number | undefined {
   const v = msg.params.get(type);
-  return v !== undefined && v.length >= 8 ? Number(v.readBigUInt64BE(0)) : undefined;
+  return v !== undefined && v.length >= 8 ? Number(readU64BE(v, 0)) : undefined;
 }

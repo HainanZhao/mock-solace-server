@@ -4,7 +4,7 @@ import { WS_SUBPROTOCOL } from '../smf/constants.js';
 import { Connection } from './connection.js';
 
 class WsConnection implements Connection {
-  private bytesCb: ((chunk: Buffer) => void) | undefined;
+  private bytesCb: ((chunk: Uint8Array) => void) | undefined;
   private closeCb: (() => void) | undefined;
   readonly remoteAddress: string;
 
@@ -20,7 +20,7 @@ class WsConnection implements Connection {
     ws.on('error', () => ws.close());
   }
 
-  send(data: Buffer): void {
+  send(data: Uint8Array): void {
     if (this.ws.readyState === WebSocket.OPEN) this.ws.send(data);
   }
 
@@ -32,7 +32,7 @@ class WsConnection implements Connection {
     return this.ws.bufferedAmount;
   }
 
-  onBytes(cb: (chunk: Buffer) => void): void {
+  onBytes(cb: (chunk: Uint8Array) => void): void {
     this.bytesCb = cb;
   }
 

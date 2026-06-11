@@ -2,14 +2,15 @@ import { SmfProtocol } from '../constants.js';
 import { SmfMessage } from '../codec.js';
 import { encodeSmfFrame } from '../header.js';
 import { encodeTopicNameParam } from '../params.js';
+import { toUtf8 } from '../../util/bytes.js';
 
 /** A direct message as seen by the broker. */
 export interface DirectMessage {
   topic: string;
   /** Message body bytes (binary attachment region, may include SDT containers). */
-  payload: Buffer;
+  payload: Uint8Array;
   /** Original frame for zero-copy fan-out to subscribers. */
-  raw: Buffer;
+  raw: Uint8Array;
 }
 
 export function trMsgFromSmf(msg: SmfMessage): DirectMessage | null {
@@ -21,7 +22,7 @@ export function trMsgFromSmf(msg: SmfMessage): DirectMessage | null {
     topicBytes = topicBytes.subarray(0, -1);
   }
   return {
-    topic: topicBytes.toString('utf8'),
+    topic: toUtf8(topicBytes),
     payload: msg.payload,
     raw: msg.raw,
   };
@@ -32,7 +33,7 @@ export function trMsgFromSmf(msg: SmfMessage): DirectMessage | null {
  * payload (the SDK treats a payload without a content summary as a single
  * binary attachment).
  */
-export function encodeDirectMessage(topic: string, payload: Buffer): Buffer {
+export function encodeDirectMessage(topic: string, payload: Uint8Array): Uint8Array {
   return encodeSmfFrame(
     { protocol: SmfProtocol.TRMSG, ttl: 255 },
     encodeTopicNameParam(`${topic}\0`),

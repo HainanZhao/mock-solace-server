@@ -18,6 +18,17 @@ import {
   sdtString,
   sdtTopicDestination,
 } from '../sdt.js';
+import {
+  alloc,
+  concat,
+  readU16BE,
+  readU32BE,
+  readUIntBE,
+  toUtf8,
+  writeU16BE,
+  writeU32BE,
+  writeUIntBE,
+} from '../../util/bytes.js';
 
 export const ContentElementType = {
   XML_META: 0,
@@ -32,30 +43,30 @@ interface ContentElement {
 }
 
 /** Parses the MESSAGE_CONTENT_SUMMARY param value: (type<<4|lenMode) + length. */
-export function parseContentSummary(value: Buffer): ContentElement[] {
+export function parseContentSummary(value: Uint8Array): ContentElement[] {
   const elements: ContentElement[] = [];
   let pos = 0;
   while (pos < value.length) {
-    const b = value.readUInt8(pos);
+    const b = value[pos]!;
     const type = (b >> 4) & 0x0f;
     const lenMode = b & 0x0f;
     pos++;
     let length: number;
     switch (lenMode) {
       case 2:
-        length = value.readUInt8(pos);
+        length = value[pos]!;
         pos += 1;
         break;
       case 3:
-        length = value.readUInt16BE(pos);
+        length = readU16BE(value, pos);
         pos += 2;
         break;
       case 4:
-        length = value.readUIntBE(pos, 3);
+        length = readUIntBE(value, pos, 3);
         pos += 3;
         break;
       case 5:
-        length = value.readUInt32BE(pos);
+        length = readU32BE(value, pos);
         pos += 4;
         break;
       default:
@@ -66,17 +77,17 @@ export function parseContentSummary(value: Buffer): ContentElement[] {
   return elements;
 }
 
-function encodeContentElement(type: number, length: number): Buffer {
-  if (length <= 0xff) return Buffer.from([(type << 4) | 2, length]);
+function encodeContentElement(type: number, length: number): Uint8Array {
+  if (length <= 0xff) return Uint8Array.of((type << 4) | 2, length);
   if (length <= 0xffff) {
-    const b = Buffer.alloc(3);
-    b.writeUInt8((type << 4) | 3, 0);
-    b.writeUInt16BE(length, 1);
+    const b = alloc(3);
+    b[0] = (type << 4) | 3;
+    writeU16BE(b, length, 1);
     return b;
   }
-  const b = Buffer.alloc(5);
-  b.writeUInt8((type << 4) | 5, 0);
-  b.writeUInt32BE(length, 1);
+  const b = alloc(5);
+  b[0] = (type << 4) | 5;
+  writeU32BE(b, length, 1);
   return b;
 }
 
@@ -85,7 +96,7 @@ export interface MessageMeta {
   replyToTopic?: string;
   isReply: boolean;
   /** The binary-attachment portion of the payload (the message body). */
-  attachment: Buffer;
+  attachment: Uint8Array;
 }
 
 function stripNull(s: string): string {
@@ -113,9 +124,9 @@ export function extractMessageMeta(msg: SmfMessage): MessageMeta {
   return meta;
 }
 
-function decodeMetaBlock(chunk: Buffer, meta: MessageMeta): void {
+function decodeMetaBlock(chunk: Uint8Array, meta: MessageMeta): void {
   // BinaryMetaBlock: u8 chunk count, u8 type, u24 length, SDT payload.
-  if (chunk.length < 5 || chunk.readUInt8(0) !== 1) return;
+  if (chunk.length < 5 || chunk[0] !== 1) return;
   const sdtPayload = chunk.subarray(5);
   try {
     const { field: stream } = decodeSdtField(sdtPayload, 0);
@@ -123,7 +134,7 @@ function decodeMetaBlock(chunk: Buffer, meta: MessageMeta): void {
     const elements = decodeSdtStream(stream.value);
     const preamble = elements[0];
     if (preamble?.type === SdtType.BYTEARRAY && preamble.value.length >= 2) {
-      meta.isReply = (preamble.value.readUInt8(1) & 0x80) !== 0;
+      meta.isReply = (preamble.value[1]! & 0x80) !== 0;
     }
     const outerMap = elements[1];
     if (outerMap?.type !== SdtType.MAP) return;
@@ -131,11 +142,11 @@ function decodeMetaBlock(chunk: Buffer, meta: MessageMeta): void {
     if (headerField?.type !== SdtType.MAP) return;
     const headers = decodeSdtMap(headerField.value);
     const ci = headers.get('ci');
-    if (ci?.type === SdtType.STRING) meta.correlationId = stripNull(ci.value.toString('utf8'));
+    if (ci?.type === SdtType.STRING) meta.correlationId = stripNull(toUtf8(ci.value));
     const rt = headers.get('rt');
     if (rt?.type === SdtType.DESTINATION && rt.value.length >= 2) {
       // value = u8 destination type (0 = topic) + null-terminated name
-      meta.replyToTopic = stripNull(rt.value.subarray(1).toString('utf8'));
+      meta.replyToTopic = stripNull(toUtf8(rt.value.subarray(1)));
     }
   } catch {
     // Malformed/unknown metadata: leave meta fields unset.
@@ -156,9 +167,9 @@ export interface OutboundMessageOptions {
  */
 export function buildOutboundMessage(
   topic: string,
-  payload: Buffer,
+  payload: Uint8Array,
   opts: OutboundMessageOptions = {},
-): Buffer {
+): Uint8Array {
   const needsMeta = opts.isReply || opts.correlationId !== undefined || opts.replyToTopic !== undefined;
   if (!needsMeta) {
     return encodeSmfFrame(
@@ -168,7 +179,7 @@ export function buildOutboundMessage(
     );
   }
 
-  const headerEntries: [string, Buffer][] = [];
+  const headerEntries: [string, Uint8Array][] = [];
   if (opts.correlationId !== undefined) headerEntries.push(['ci', sdtString(opts.correlationId)]);
   if (opts.replyToTopic !== undefined) {
     headerEntries.push(['rt', sdtTopicDestination(opts.replyToTopic)]);
@@ -179,29 +190,29 @@ export function buildOutboundMessage(
   // Preamble: byte0 = 0x80 (binary message), byte1 = 0x80 if reply.
   const preamble = encodeSdtField(
     SdtType.BYTEARRAY,
-    Buffer.from([0x80, opts.isReply ? 0x80 : 0x00]),
+    Uint8Array.of(0x80, opts.isReply ? 0x80 : 0x00),
   );
   const sdtPayload = encodeSdtField(
     SdtType.STREAM,
-    Buffer.concat([preamble, encodeSdtField(SdtType.MAP, outerMapBody)]),
+    concat([preamble, encodeSdtField(SdtType.MAP, outerMapBody)]),
   );
-  const metaBlock = Buffer.alloc(5 + sdtPayload.length);
-  metaBlock.writeUInt8(1, 0); // chunk count
-  metaBlock.writeUInt8(0, 1); // type 0 = SDT metadata
-  metaBlock.writeUIntBE(sdtPayload.length, 2, 3);
-  sdtPayload.copy(metaBlock, 5);
+  const metaBlock = alloc(5 + sdtPayload.length);
+  metaBlock[0] = 1; // chunk count
+  metaBlock[1] = 0; // type 0 = SDT metadata
+  writeUIntBE(metaBlock, sdtPayload.length, 2, 3);
+  metaBlock.set(sdtPayload, 5);
 
-  const summary = Buffer.concat([
+  const summary = concat([
     encodeContentElement(ContentElementType.BINARY_ATTACHMENT, payload.length),
     encodeContentElement(ContentElementType.BINARY_METADATA, metaBlock.length),
   ]);
-  const params = Buffer.concat([
+  const params = concat([
     encodeTopicNameParam(`${topic}\0`),
     encodeSmfParam(2, SmfParam.MESSAGE_CONTENT_SUMMARY, summary),
   ]);
   return encodeSmfFrame(
     { protocol: SmfProtocol.TRMSG, ttl: 255 },
     params,
-    Buffer.concat([payload, metaBlock]),
+    concat([payload, metaBlock]),
   );
 }

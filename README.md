@@ -9,6 +9,9 @@ Built for test suites:
 
 - **In-memory and fast** — starts in milliseconds on ephemeral ports, safe for
   parallel test workers.
+- **Runs in the browser too** — an MSW-style in-memory mode patches
+  `WebSocket`/`fetch` so the solclientjs browser build connects with no
+  network and no Node server (vitest browser mode, Karma, Storybook).
 - **Topic routing first-class** — full Solace wildcard semantics (`*`, `abc*`,
   `>`), property-tested against a reference matcher.
 - **Mock services built in** — stub the *other side* of the broker: answer
@@ -22,6 +25,8 @@ Built for test suites:
 ## Contents
 
 - [Quick start](#quick-start)
+- [Browser and in-memory mode](#browser-and-in-memory-mode)
+  - [Import order is load-bearing](#import-order-is-load-bearing)
 - [What's implemented](#whats-implemented)
 - [Usage guide](#usage-guide)
   - [Publish / subscribe with wildcards](#publish--subscribe-with-wildcards)
@@ -38,7 +43,9 @@ Built for test suites:
 
 ## Requirements
 
-- Node.js >= 22
+- Node.js >= 22 for the socket server (`MockSolaceServer`)
+- Any evergreen browser (or Node) for the in-memory mode
+  (`mock-solace-server/browser`)
 
 ## Quick start
 
@@ -74,11 +81,107 @@ new MockSolaceServer({ smfWsPort: 8008, sempPort: 8080 });
 There is a runnable end-to-end demo in [`examples/pubsub.mjs`](examples/pubsub.mjs)
 (`npm run build && node examples/pubsub.mjs`).
 
+## Browser and in-memory mode
+
+`MockSolaceServer` binds real sockets and is Node-only. For tests that run
+*inside a browser* — vitest browser mode, Karma, Storybook, or just a dev
+page — use `InMemorySolaceServer` from the `/browser` entry point. Like
+[MSW](https://mswjs.io), it intercepts the network API itself: `start()`
+patches `globalThis.WebSocket` (and `fetch`, for SEMP), so the unmodified
+solclientjs **browser build** connects straight into the broker core with no
+network, no ports, and no separate process.
+
+```ts
+import 'mock-solace-server/browser/auto'; // ① patches WebSocket/fetch — keep this import FIRST
+import solace from 'solclientjs';         // ② captures the patched WebSocket
+import { InMemorySolaceServer } from 'mock-solace-server/browser';
+
+const server = new InMemorySolaceServer();
+const { smfWsUrl, sempUrl } = await server.start();
+
+// From here everything works exactly like the Node quick start:
+// createSession({ url: smfWsUrl, ... }), subscribe, publish, sendRequest...
+// SEMP provisioning code can fetch(sempUrl + '/SEMP/v2/...') as usual.
+
+await server.stop();
+```
+
+### Import order is load-bearing
+
+solclientjs's browser build captures the `WebSocket` constructor **when its
+module evaluates**, not when you connect. The interceptor must therefore be
+installed before solclientjs is imported. There are two ways to guarantee
+that, pick one:
+
+1. **The `/auto` entry (recommended).** A bare side-effect import that
+   patches `WebSocket`/`fetch` immediately. ES modules evaluate dependencies
+   in declaration order, so listing it before `solclientjs` is sufficient —
+   but safest is a test-runner setup file, which always evaluates before any
+   test module:
+
+   ```ts
+   // vitest.config.ts
+   export default defineConfig({
+     test: { setupFiles: ['mock-solace-server/browser/auto'] },
+   });
+   // Karma: list a bootstrap file that imports it first in `files`.
+   ```
+
+   Beware of tooling that reorders imports: if a formatter or an
+   auto-organize-imports rule can move the bare import below `solclientjs`,
+   prefer the setup-file form.
+
+   Until a server is started — and again after `server.stop()` — the patched
+   globals pass everything through to the platform implementations, so the
+   `/auto` import is inert for non-mock traffic. Connections to origins
+   without a registered in-memory endpoint always fall through, patched or
+   not.
+
+2. **Dynamic import, no `/auto`.** `start()` also installs the interceptors,
+   so loading solclientjs lazily after it works without the side-effect
+   entry, and `stop()` then fully restores the globals:
+
+   ```ts
+   import { InMemorySolaceServer } from 'mock-solace-server/browser';
+
+   const server = new InMemorySolaceServer();
+   const { smfWsUrl } = await server.start();
+   const solace = (await import('solclientjs')).default; // AFTER start()
+   ```
+
+Both interceptors can also be installed programmatically via
+`installWebSocketInterceptor()` / `installFetchInterceptor()` from
+`mock-solace-server/browser`.
+
+Notes:
+
+- The whole test is **one process**, so the full server API
+  (`server.publish()`, `respondTo()`, `scenario()`, `waitForMessage()`,
+  `capturedMessages()`, queues) is directly available next to your
+  assertions — no control channel needed.
+- The returned URLs use a synthetic host like `ws://mock-solace-1.invalid:55555`;
+  nothing listens there. The interceptor recognizes the origin and routes
+  in-memory. WebSocket/fetch calls to **other** origins fall through to the
+  real implementations untouched.
+- `InMemorySolaceServer` also works in Node — but note the solclientjs *Node*
+  build bundles its own `ws` client and ignores `globalThis.WebSocket`, so it
+  can't be intercepted. In Node, either use the socket-based
+  `MockSolaceServer`, or load the browser build explicitly
+  (`require('solclientjs/lib-browser/solclient.js')`), which is exactly what
+  [`test/integration/in-memory.test.ts`](test/integration/in-memory.test.ts)
+  does.
+- This is the same trade-off MSW makes: its browser HTTP mocking rides a
+  Service Worker (a real network-layer hook, immune to import order), but
+  service workers cannot intercept WebSockets, so MSW's own WebSocket support
+  patches the global class exactly like this — with the same
+  install-before-capture requirement.
+
 ## What's implemented
 
 | Area | Status |
 |---|---|
 | SMF over WebSocket (subprotocol `smf.solacesystems.com`) | ✅ |
+| In-memory browser mode (MSW-style WebSocket/fetch interception) | ✅ |
 | ClientCtrl login handshake, keepalives, clean disconnect | ✅ |
 | SMP subscribe/unsubscribe with confirmations | ✅ |
 | Direct message routing (TrMsg), SDT payloads pass through intact | ✅ |

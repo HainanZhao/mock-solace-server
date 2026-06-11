@@ -3,19 +3,19 @@ import { SmfFramer } from '../../src/transport/framer.js';
 import { encodeKeepAlive } from '../../src/smf/messages/keepalive.js';
 import { encodeDirectMessage } from '../../src/smf/messages/trmsg.js';
 
-function collect(): { frames: Buffer[]; errors: Error[]; framer: SmfFramer } {
-  const frames: Buffer[] = [];
+function collect(): { frames: Uint8Array[]; errors: Error[]; framer: SmfFramer } {
+  const frames: Uint8Array[] = [];
   const errors: Error[] = [];
   const framer = new SmfFramer(
-    (f) => frames.push(Buffer.from(f)),
+    (f) => frames.push(Uint8Array.from(f)),
     (e) => errors.push(e),
   );
   return { frames, errors, framer };
 }
 
 describe('SmfFramer', () => {
-  const ka = encodeKeepAlive();
-  const msg = encodeDirectMessage('a/b/c', Buffer.from('hello'));
+  const ka = Uint8Array.from(encodeKeepAlive());
+  const msg = Uint8Array.from(encodeDirectMessage('a/b/c', Buffer.from('hello')));
 
   it('emits a single complete frame', () => {
     const { frames, framer } = collect();
@@ -52,7 +52,7 @@ describe('SmfFramer', () => {
 
   it('reports lost framing on bad version', () => {
     const { frames, errors, framer } = collect();
-    const bad = Buffer.from(ka);
+    const bad = Uint8Array.from(ka);
     bad[0] = 0x07;
     framer.push(bad);
     expect(frames).toHaveLength(0);

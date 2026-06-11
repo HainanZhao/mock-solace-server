@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+const randomUUID = (): string => globalThis.crypto.randomUUID();
 import { ClientInfo } from '../api/events.js';
 import { ResolvedOptions } from '../config.js';
 import { decodeSmf, SmfMessage } from '../smf/codec.js';
@@ -19,6 +19,7 @@ import { encodeKeepAlive } from '../smf/messages/keepalive.js';
 import { decodeSmp, encodeSmpResponse, responseRequired } from '../smf/messages/smp.js';
 import { DirectMessage } from '../smf/messages/trmsg.js';
 import { Connection } from '../transport/connection.js';
+import { alloc, concat, writeU16BE, writeU32BE } from '../util/bytes.js';
 import { SmfFramer } from '../transport/framer.js';
 import { InvalidSubscriptionError } from './topic-matcher.js';
 import { Subscriber } from './vpn.js';
@@ -92,7 +93,7 @@ export class ClientSession implements Subscriber {
     this.livenessTimer.unref?.();
   }
 
-  private onFrame(frame: Buffer): void {
+  private onFrame(frame: Uint8Array): void {
     let msg: SmfMessage;
     try {
       msg = decodeSmf(frame);
@@ -162,7 +163,7 @@ export class ClientSession implements Subscriber {
     this.host.onSessionUp(this);
   }
 
-  private loginResponse(code: number, text: string, vpnName: string, clientName: string): Buffer {
+  private loginResponse(code: number, text: string, vpnName: string, clientName: string): Uint8Array {
     const opts = this.host.options;
     return encodeLoginResponse({
       responseCode: code,
@@ -244,7 +245,7 @@ export class ClientSession implements Subscriber {
     return this.sendFrame(message.raw);
   }
 
-  sendFrame(frame: Buffer): boolean {
+  sendFrame(frame: Uint8Array): boolean {
     if (this.state !== 'up') return false;
     if (this.conn.bufferedAmount() > this.host.options.maxBufferedBytes) return false;
     this.conn.send(frame);
@@ -267,18 +268,18 @@ export class ClientSession implements Subscriber {
   }
 }
 
-function buildUpdateAck(request: SmfMessage): Buffer {
-  const body = Buffer.alloc(6);
-  body.writeUInt16BE((ClientCtrlVersion << 8) | ClientCtrlMsgType.UPDATE, 0);
-  body.writeUInt32BE(6, 2);
-  const params: Buffer[] = [];
+function buildUpdateAck(request: SmfMessage): Uint8Array {
+  const body = alloc(6);
+  writeU16BE(body, (ClientCtrlVersion << 8) | ClientCtrlMsgType.UPDATE, 0);
+  writeU32BE(body, 6, 2);
+  const params: Uint8Array[] = [];
   if (request.params.correlationTag !== undefined) {
     params.push(encodeCorrelationTagParam(request.params.correlationTag));
   }
   params.push(encodeResponseParam(200, 'OK'));
   return encodeSmfFrame(
     { protocol: SmfProtocol.CLIENTCTRL, ttl: 1 },
-    Buffer.concat(params),
+    concat(params),
     body,
   );
 }

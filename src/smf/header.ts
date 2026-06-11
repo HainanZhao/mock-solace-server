@@ -1,4 +1,5 @@
 import { SMF_MIN_HEADER_LEN, SMF_VERSION } from './constants.js';
+import { alloc, concat, readU32BE, writeU32BE } from '../util/bytes.js';
 
 /** Decoded SMF fixed header (12 bytes). See docs/protocol-notes.md §1. */
 export interface SmfHeader {
@@ -20,17 +21,17 @@ export interface SmfHeader {
 export class SmfDecodeError extends Error {}
 
 /** Reads the fixed header. `buf` must contain at least 12 bytes at `offset`. */
-export function decodeSmfHeader(buf: Buffer, offset = 0): SmfHeader {
+export function decodeSmfHeader(buf: Uint8Array, offset = 0): SmfHeader {
   if (buf.length - offset < SMF_MIN_HEADER_LEN) {
     throw new SmfDecodeError('buffer too short for SMF header');
   }
-  const w1 = buf.readUInt32BE(offset);
+  const w1 = readU32BE(buf, offset);
   const version = (w1 >>> 24) & 0x07;
   if (version !== SMF_VERSION) {
     throw new SmfDecodeError(`invalid SMF version ${version}`);
   }
-  const headerLen = buf.readUInt32BE(offset + 4);
-  const msgLen = buf.readUInt32BE(offset + 8);
+  const headerLen = readU32BE(buf, offset + 4);
+  const msgLen = readU32BE(buf, offset + 8);
   if (headerLen < SMF_MIN_HEADER_LEN || msgLen < headerLen) {
     throw new SmfDecodeError(`invalid SMF lengths header=${headerLen} msg=${msgLen}`);
   }
@@ -64,9 +65,9 @@ export interface SmfHeaderFields {
 /** Builds a full SMF frame around already-encoded params and payload. */
 export function encodeSmfFrame(
   fields: SmfHeaderFields,
-  params: Buffer = Buffer.alloc(0),
-  payload: Buffer = Buffer.alloc(0),
-): Buffer {
+  params: Uint8Array = alloc(0),
+  payload: Uint8Array = alloc(0),
+): Uint8Array {
   const headerLen = SMF_MIN_HEADER_LEN + params.length;
   const msgLen = headerLen + payload.length;
   let w1 = 0;
@@ -80,9 +81,9 @@ export function encodeSmfFrame(
   w1 |= (fields.protocol & 0x3f) << 16;
   w1 |= (fields.priority ?? 0) << 12;
   w1 |= (fields.ttl ?? 0) & 0xff;
-  const head = Buffer.alloc(SMF_MIN_HEADER_LEN);
-  head.writeUInt32BE(w1 >>> 0, 0);
-  head.writeUInt32BE(headerLen, 4);
-  head.writeUInt32BE(msgLen, 8);
-  return Buffer.concat([head, params, payload]);
+  const head = alloc(SMF_MIN_HEADER_LEN);
+  writeU32BE(head, w1 >>> 0, 0);
+  writeU32BE(head, headerLen, 4);
+  writeU32BE(head, msgLen, 8);
+  return concat([head, params, payload]);
 }
