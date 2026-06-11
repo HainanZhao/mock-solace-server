@@ -180,3 +180,38 @@ this mock does for direct messages.
 - `>` as the entire final level = one or more remaining levels; does not match the parent.
 - Published topics containing `*`/`>` are treated as literals by real brokers only in
   specific cases; this mock treats published topics as literals always.
+
+## 10. AdProtocol / AssuredCtrl (proto 9) — debug.js:15565–15900, 17877–17990, 4285–4348, 6020–6045
+
+Body (version 3): byte 0 = version (low 6 bits, must be 3), byte 1 = msgType,
+u32 body length **including these 6 bytes**, then params.
+Param TLV: 1 byte (UH bits 7–6, type bits 5–0; **type 0 = padding, skip**), 1 byte total
+length incl. these 2 (0 → u32 extended total incl. 5), value.
+
+Msg types: 0 OPENPUBFLOW, 3 CLIENTACK, 4 BIND, 5 UNBIND, 6 UNSUBSCRIBE, 7 CLOSEPUBFLOW,
+8 CREATE, 9 DELETE, 12 FLOWCHANGEUPDATE, 15 CLIENTNACK.
+
+Param ids: 2 LASTMSGIDACKED (u64), 3 WINDOW (u8), 5 APPLICATION_ACK (**repeated param**,
+one range each: u64 min + u64 max + optional u8 outcome), 6 FLOWID (u32), 7 QUEUENAME
+(null-terminated), 8 DTENAME, 9 TOPICNAME, 11 EP_DURABLE (u8), 12 ACCESSTYPE (u8),
+14 TRANSPORT_WINDOW (u32), 16 LASTMSGIDRECEIVED (u64), 18 FLOWTYPE (u8: 2 browser,
+3 nack-capable), 32 ACTIVE_FLOW_INDICATION (u8), 49 MAX_DELIVERED_UNACKED (u32).
+
+**Correlation**: ADCTRL responses are matched by the echoed SMF-level lightweight
+correlation tag (debug.js:12430–12450); without it the message is dispatched by FLOWID.
+
+**Consumer flow (happy path)**:
+- Client sends BIND with QUEUENAME, WINDOW, EP_DURABLE, LASTMSGIDACKED/RECEIVED.
+- Broker replies msgType BIND + corrtag + Response 200 + FLOWID (+WINDOW,
+  LASTMSGIDACKED…); ≠200 → CONNECT_FAILED. `MessageConsumerEventName.UP` follows.
+- Requires login capability bitmap **index 2** (GUARANTEED_MESSAGE_CONSUME) set —
+  note the CapabilityType enum VALUE is 9 but the bitmap index is 2.
+- Guaranteed deliveries are TrMsg frames with ADF=1 + ASSURED_MESSAGE_ID (0x11, u64,
+  UH=2), ASSURED_PREVMESSAGE_ID (0x12), ASSURED_FLOWID (0x17, u32), DELIVERY_MODE
+  (0x10; wire values: 0 non-persistent, 1 persistent, 2 direct), optional
+  ASSURED_REDELIVERED_FLAG (0x13, 0-length).
+- Ordering check (debug.js:6030–6043): accept iff `prevMsgId <= lastReceived` AND
+  `msgId > lastReceived`; lastReceived initialized from bind-response LASTMSGIDACKED.
+- message.acknowledge() → CLIENTACK with FLOWID + APPLICATION_ACK range(s); transport
+  acks (LASTMSGIDACKED/WINDOW) also arrive and must not delete messages.
+- consumer.disconnect() → UNBIND (FLOWID); reply msgType UNBIND + corrtag + 200.

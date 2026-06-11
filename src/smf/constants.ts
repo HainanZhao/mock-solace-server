@@ -142,3 +142,43 @@ export const RouterCapBit = {
 export const ROUTER_CAP_BIT_COUNT = 27;
 
 export const WS_SUBPROTOCOL = 'smf.solacesystems.com';
+
+/** AdProtocol (AssuredCtrl, proto 9) message types — debug.js:18622–18634. */
+export const AdMsgType = {
+  OPENPUBFLOW: 0,
+  CLIENTACK: 3,
+  BIND: 4,
+  UNBIND: 5,
+  UNSUBSCRIBE: 6,
+  CLOSEPUBFLOW: 7,
+  CREATE: 8,
+  DELETE: 9,
+  FLOWCHANGEUPDATE: 12,
+  CLIENTNACK: 15,
+} as const;
+
+/** AdProtocol parameter ids — debug.js:18642–18669. */
+export const AdParam = {
+  LASTMSGIDACKED: 2,
+  WINDOW: 3,
+  APPLICATION_ACK: 5,
+  FLOWID: 6,
+  QUEUENAME: 7,
+  DTENAME: 8,
+  TOPICNAME: 9,
+  EP_DURABLE: 11,
+  ACCESSTYPE: 12,
+  TRANSPORT_WINDOW: 14,
+  LASTMSGIDRECEIVED: 16,
+  FLOWTYPE: 18,
+  ACTIVE_FLOW_INDICATION: 32,
+  WANT_FLOW_CHANGE_NOTIFY: 33,
+  MAX_DELIVERED_UNACKED_MESSAGES_PER_FLOW: 49,
+} as const;
+
+/** Wire values for the DELIVERY_MODE SMF param — debug.js:16804–16808. */
+export const WireDeliveryMode = {
+  NON_PERSISTENT: 0,
+  PERSISTENT: 1,
+  DIRECT: 2,
+} as const;

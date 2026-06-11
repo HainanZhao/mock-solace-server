@@ -36,6 +36,7 @@ export interface SessionHost {
   removeSubscription(session: ClientSession, subscription: string): void;
   addQueueSubscription(vpnName: string, queueName: string, subscription: string): void;
   removeQueueSubscription(vpnName: string, queueName: string, subscription: string): boolean;
+  handleAdCtrl(session: ClientSession, msg: SmfMessage): void;
   routeDirectMessage(session: ClientSession, msg: SmfMessage): void;
   onSessionUp(session: ClientSession): void;
   onSessionClosed(session: ClientSession): void;
@@ -122,8 +123,11 @@ export class ClientSession implements Subscriber {
       case SmfProtocol.CLIENTCTRL:
         this.handleClientCtrlUpdate(msg);
         break;
+      case SmfProtocol.ADCTRL:
+        this.host.handleAdCtrl(this, msg);
+        break;
       default:
-        // Unknown/unsupported protocol (e.g. ADCTRL before M6): ignore.
+        // Unknown/unsupported protocol: ignore.
         break;
     }
   }
@@ -169,9 +173,11 @@ export class ClientSession implements Subscriber {
       virtualRouterName: `v:${opts.routerName}`,
       physicalRouterName: opts.routerName,
       capabilities: {
-        // NO_LOCAL only; all guaranteed-messaging bits stay off until M6.
-        booleanBits: [14],
+        // GUARANTEED_MESSAGE_CONSUME (2), QUEUE_SUBSCRIPTIONS (9),
+        // NO_LOCAL (14). GM publish stays off (no publisher flows).
+        booleanBits: [2, 9, 14],
         maxDirectMsgSize: 64 * 1024 * 1024,
+        maxGuaranteedMsgSize: 64 * 1024 * 1024,
       },
       keepAliveIntervalSec: opts.keepAliveIntervalSec,
     });
@@ -235,9 +241,13 @@ export class ClientSession implements Subscriber {
 
   /** Subscriber implementation: forward the routed frame, with backpressure cap. */
   deliver(message: DirectMessage): boolean {
+    return this.sendFrame(message.raw);
+  }
+
+  sendFrame(frame: Buffer): boolean {
     if (this.state !== 'up') return false;
     if (this.conn.bufferedAmount() > this.host.options.maxBufferedBytes) return false;
-    this.conn.send(message.raw);
+    this.conn.send(frame);
     return true;
   }
 

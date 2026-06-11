@@ -38,6 +38,8 @@ let nextMsgId = 1;
 export class Queue implements Subscriber {
   readonly messages: StoredMessage[] = [];
   readonly topicSubscriptions = new Set<string>();
+  /** Message ids currently delivered to a flow and awaiting ack. */
+  readonly inflight = new Set<number>();
   properties: QueueProperties;
   /** Set by the AD layer when a consumer flow is bound (M6). */
   onSpooled: (() => void) | undefined;
@@ -76,9 +78,19 @@ export class Queue implements Subscriber {
 
   /** Removes a message by AD message id (consumer ack). */
   ack(msgId: number): boolean {
+    this.inflight.delete(msgId);
     const idx = this.messages.findIndex((m) => m.msgId === msgId);
     if (idx === -1) return false;
     this.messages.splice(idx, 1);
     return true;
+  }
+
+  /** Returns inflight messages to the spool (flow teardown). */
+  releaseInflight(): void {
+    for (const id of this.inflight) {
+      const msg = this.messages.find((m) => m.msgId === id);
+      if (msg) msg.redelivered = true;
+    }
+    this.inflight.clear();
   }
 }

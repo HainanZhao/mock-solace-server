@@ -3,6 +3,7 @@ import { ResolvedOptions } from '../config.js';
 import { SmfMessage } from '../smf/codec.js';
 import { trMsgFromSmf } from '../smf/messages/trmsg.js';
 import { Connection } from '../transport/connection.js';
+import { AdFlowManager } from './ad-flow-manager.js';
 import { ClientSession, SessionHost } from './client-session.js';
 import { Queue, QueueProperties } from './queue.js';
 import { MessageVpn } from './vpn.js';
@@ -10,6 +11,7 @@ import { MessageVpn } from './vpn.js';
 export class Broker implements SessionHost {
   readonly vpns = new Map<string, MessageVpn>();
   readonly sessions = new Set<ClientSession>();
+  private readonly flowManager = new AdFlowManager((vpn, name) => this.getQueue(vpn, name));
   private captured: CapturedMessage[] = [];
 
   constructor(
@@ -77,7 +79,12 @@ export class Broker implements SessionHost {
     this.sessions.delete(session);
     const vpn = this.vpns.get(session.vpnName);
     vpn?.trie.removeAll(session);
+    this.flowManager.sessionClosed(session);
     this.events.emit('clientDisconnected', session.info());
+  }
+
+  handleAdCtrl(session: ClientSession, msg: SmfMessage): void {
+    this.flowManager.handleAdCtrl(session, msg);
   }
 
   addSubscription(session: ClientSession, subscription: string): void {
