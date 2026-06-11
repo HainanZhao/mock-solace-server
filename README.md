@@ -1,4 +1,4 @@
-# solace-server
+# mock-solace-server
 
 A **mock Solace PubSub+ broker** for testing environments. It speaks the real
 SMF binary wire protocol over WebSocket, so the official
@@ -19,7 +19,7 @@ flows are minimal (happy path).
 ## Quick start
 
 ```ts
-import { MockSolaceServer } from 'solace-server';
+import { MockSolaceServer } from 'mock-solace-server';
 import solace from 'solclientjs';
 
 const server = new MockSolaceServer();           // ephemeral ports by default
@@ -160,7 +160,7 @@ are not implemented; queue ingress happens via topic subscriptions).
 
 ```ts
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { MockSolaceServer } from 'solace-server';
+import { MockSolaceServer } from 'mock-solace-server';
 
 let server: MockSolaceServer;
 let url: string;

@@ -1,5 +1,5 @@
 {
-  "name": "solace-server",
+  "name": "mock-solace-server",
   "version": "0.1.0",
   "description": "Mock Solace PubSub+ broker for testing environments — speaks the real SMF wire protocol so unmodified solclientjs clients can connect",
   "type": "module",
