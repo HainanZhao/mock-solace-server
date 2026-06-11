@@ -5,12 +5,36 @@ SMF binary wire protocol over WebSocket, so the official
 [`solclientjs`](https://www.npmjs.com/package/solclientjs) SDK connects to it
 **unmodified** — no test doubles, no SDK shims.
 
-Built for test suites: in-memory, fast startup, ephemeral ports, inspection
-hooks, and a minimal SEMP v2 management API for provisioning.
+Built for test suites:
 
-**Priorities:** direct messaging / topic routing is first-class. Queues are
-supported for spooling and SEMP provisioning; guaranteed-messaging consumer
-flows are minimal (happy path).
+- **In-memory and fast** — starts in milliseconds on ephemeral ports, safe for
+  parallel test workers.
+- **Topic routing first-class** — full Solace wildcard semantics (`*`, `abc*`,
+  `>`), property-tested against a reference matcher.
+- **Mock services built in** — stub the *other side* of the broker: answer
+  `session.sendRequest()` request/reply, publish broker-originated messages,
+  and replay named message scenarios with `server.play('name')`.
+- **Inspection hooks** — captured messages, connected clients, typed events,
+  `waitForMessage()` for assertions.
+- **Queues + SEMP v2** — queue spooling, guaranteed-messaging consumers
+  (happy path), and a minimal SEMP v2 API so real provisioning code works.
+
+## Contents
+
+- [Quick start](#quick-start)
+- [What's implemented](#whats-implemented)
+- [Usage guide](#usage-guide)
+  - [Publish / subscribe with wildcards](#publish--subscribe-with-wildcards)
+  - [Queues and guaranteed-messaging consumers](#queues-and-guaranteed-messaging-consumers)
+  - [Mock services: request/reply stubs](#mock-services-requestreply-stubs)
+  - [Mock services: broker-originated publishing and replayable scenarios](#mock-services-broker-originated-publishing-and-replayable-scenarios)
+  - [Using it in vitest / jest](#using-it-in-vitest--jest)
+  - [Inspection and events](#inspection-and-events)
+  - [Simulating failures](#simulating-failures)
+  - [Configuration options](#configuration-options)
+- [SEMP v2 endpoints](#semp-v2-endpoints)
+- [How protocol fidelity is maintained](#how-protocol-fidelity-is-maintained)
+- [Development](#development)
 
 ## Requirements
 
