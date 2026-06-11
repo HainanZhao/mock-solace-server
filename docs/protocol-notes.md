@@ -59,7 +59,8 @@ Standard types used here (debug.js:18747–18777):
 - `0x0c` BINARY_ATTACHMENT — *deprecated; receiver skips it* (payload rides after header instead)
 - `0x10` DELIVERY_MODE — only parsed when ADF flag set
 - `0x16` MESSAGE_CONTENT_SUMMARY (see §7)
-- `0x18` TR_TOPICNAME — raw UTF-8 topic bytes, NOT null-terminated (SDK encodes with UH=2)
+- `0x18` TR_TOPICNAME — UTF-8 topic bytes **including a trailing null** (destination
+  encodeBytes appends `\0`, debug.js:880–885; SDK encodes the param with UH=2)
 - `0x1f` EXTENDED_TYPE_STREAM (OAuth tokens, trace context — can ignore/skip)
 
 ## 4. KeepAlive — debug.js:18409–18415, 12775–12805, 20161
@@ -130,8 +131,10 @@ Body: 1 byte (bit 7 UH, bits 6–0 msgType) + u32 body length (incl 6 header byt
 - msgTypes: `0` ADDSUBSCRIPTION, `1` REMSUBSCRIPTION, `2` ADDQUEUESUBSCRIPTION,
   `3` REMQUEUESUBSCRIPTION
 - flags: `0x10` DELIVERALWAYS, `0x08` RESPREQUIRED, `0x04` TOPIC, `0x02` PERSIST, `0x01` FILTER
-- add/rem subscription: topic = raw bytes from offset 6 to body end (no terminator/prefix)
+- add/rem subscription: topic = bytes from offset 6 to body end — **null-terminated**
+  (destination encodeBytes appends `\0`, debug.js:880–885; receivers stripNullTerminate)
 - queue variants: u8 queue-name length + name, then u8 subscription length + subscription
+  (both null-terminated, the null counted in the length byte)
 - The SMF wrapper carries a lightweight correlation tag (u24).
 
 **Subscription confirmation** (debug.js:15280–15290): broker replies with an SMP frame whose

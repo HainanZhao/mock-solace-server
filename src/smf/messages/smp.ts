@@ -10,6 +10,11 @@ export interface SmpMessage {
   queueName?: string;
 }
 
+/** Subscription/topic strings are null-terminated on the wire. */
+function stripNull(s: string): string {
+  return s.endsWith('\0') ? s.slice(0, -1) : s;
+}
+
 export function decodeSmp(payload: Buffer): SmpMessage {
   if (payload.length < 6) throw new SmfDecodeError('SMP body too short');
   const msgType = (payload.readUInt8(0) & 0x7f) as SmpMsgTypeId;
@@ -17,7 +22,7 @@ export function decodeSmp(payload: Buffer): SmpMessage {
   if (len < 6 || len > payload.length) throw new SmfDecodeError('invalid SMP length');
   const flags = payload.readUInt8(5);
   if (msgType === SmpMsgType.ADDSUBSCRIPTION || msgType === SmpMsgType.REMSUBSCRIPTION) {
-    return { msgType, flags, subscription: payload.toString('utf8', 6, len) };
+    return { msgType, flags, subscription: stripNull(payload.toString('utf8', 6, len)) };
   }
   if (
     msgType === SmpMsgType.ADDQUEUESUBSCRIPTION ||
@@ -26,11 +31,11 @@ export function decodeSmp(payload: Buffer): SmpMessage {
     let pos = 6;
     const qLen = payload.readUInt8(pos);
     pos++;
-    const queueName = payload.toString('utf8', pos, pos + qLen);
+    const queueName = stripNull(payload.toString('utf8', pos, pos + qLen));
     pos += qLen;
     const sLen = payload.readUInt8(pos);
     pos++;
-    const subscription = payload.toString('utf8', pos, pos + sLen);
+    const subscription = stripNull(payload.toString('utf8', pos, pos + sLen));
     return { msgType, flags, subscription, queueName };
   }
   throw new SmfDecodeError(`unsupported SMP msgType ${msgType}`);
@@ -42,8 +47,8 @@ export function responseRequired(msg: SmpMessage): boolean {
 
 function encodeSmpBody(msg: SmpMessage): Buffer {
   if (msg.queueName !== undefined) {
-    const q = Buffer.from(msg.queueName, 'utf8');
-    const s = Buffer.from(msg.subscription, 'utf8');
+    const q = Buffer.from(`${msg.queueName}\0`, 'utf8');
+    const s = Buffer.from(`${msg.subscription}\0`, 'utf8');
     const body = Buffer.alloc(6 + 1 + q.length + 1 + s.length);
     body.writeUInt8(msg.msgType, 0);
     body.writeUInt32BE(body.length, 1);
@@ -54,7 +59,7 @@ function encodeSmpBody(msg: SmpMessage): Buffer {
     s.copy(body, 8 + q.length);
     return body;
   }
-  const sub = Buffer.from(msg.subscription, 'utf8');
+  const sub = Buffer.from(`${msg.subscription}\0`, 'utf8');
   const body = Buffer.alloc(6 + sub.length);
   body.writeUInt8(msg.msgType, 0);
   body.writeUInt32BE(body.length, 1);
